@@ -7,7 +7,7 @@ Spring Boot REST API for the IT support ticket system. The **web UI is a separat
 | Part | Stack | Repository |
 |------|--------|------------|
 | **Backend** (this repo) | Java 17, Spring Boot 3 | [github.com/brahim-saidi/tickets](https://github.com/brahim-saidi/tickets) |
-| **Frontend** | React | *Add your React app’s GitHub URL here* (e.g. `https://github.com/<user>/<repo>`) |
+| **Frontend** | React | github.com/brahim-saidi/Flowdesk-frontend-ReactJs.git  |
 
 Clone the React project separately, install dependencies (`npm install` / `pnpm install` / `yarn`), and point the client at this API (see [Connecting the React app](#connecting-the-react-app)).
 
