@@ -17,11 +17,16 @@ public class AuditLogServiceImpl implements AuditLogService {
     @Autowired
     private AuditLogRepository auditLogRepository;
 
-    
+    @Autowired
+    private TicketAccessService ticketAccessService;
 
     @Override
     @Transactional
     public AuditLog addAuditLog(AuditLog auditLog) {
+        if (auditLog.getTicket() == null || auditLog.getTicket().getTicketId() == null) {
+            throw new IllegalArgumentException("Ticket is required");
+        }
+        ticketAccessService.requireAccessibleTicket(auditLog.getTicket().getTicketId());
         return auditLogRepository.save(auditLog);
     }
 
@@ -29,6 +34,7 @@ public class AuditLogServiceImpl implements AuditLogService {
     @Transactional(readOnly = true)
     public List<AuditLogDTO> getAuditLogsByTicketId(Long ticketId) {
         try {
+            ticketAccessService.requireAccessibleTicket(ticketId);
             List<AuditLog> auditLogs = auditLogRepository.findByTicket_TicketId(ticketId);
             return auditLogs.stream()
                 .map(auditLog -> {

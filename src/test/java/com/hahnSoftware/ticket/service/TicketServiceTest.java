@@ -1,12 +1,20 @@
 package com.hahnSoftware.ticket.service;
 
-import com.hahnSoftware.ticket.entity.*;
+import com.hahnSoftware.ticket.entity.Comment;
+import com.hahnSoftware.ticket.entity.CommentDTO;
+import com.hahnSoftware.ticket.entity.Ticket;
+import com.hahnSoftware.ticket.entity.TicketDTO;
+import com.hahnSoftware.ticket.entity.Users;
 import com.hahnSoftware.ticket.repository.TicketRepository;
 import com.hahnSoftware.ticket.repository.UserRepository;
+import com.hahnSoftware.ticket.security.CurrentUserService;
 import jakarta.persistence.EntityNotFoundException;
+import org.springframework.security.access.AccessDeniedException;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -17,9 +25,11 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class TicketServiceTest {
@@ -29,6 +39,12 @@ class TicketServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private CurrentUserService currentUserService;
+
+    @Mock
+    private TicketAccessService ticketAccessService;
 
     @InjectMocks
     private TicketServiceImpl ticketService;
@@ -49,6 +65,7 @@ class TicketServiceTest {
         createdByUser.setUsername("testUser");
         createdByUser.setEmail("testuser@example.com");
         createdByUser.setRole(Users.Role.EMPLOYEE);
+        createdByUser.setEnabled(true);
 
         assignedUser = new Users();
         assignedUser.setUserId(2L);
@@ -98,6 +115,19 @@ class TicketServiceTest {
 
         // Create a list of tickets for findAll
         ticketList = Arrays.asList(sampleTicket, anotherTicket);
+
+        lenient().when(currentUserService.isItSupport()).thenReturn(true);
+        lenient().when(currentUserService.requireUserId()).thenReturn(1L);
+        lenient().when(ticketAccessService.requireAccessibleTicket(ArgumentMatchers.anyLong())).thenAnswer(invocation -> {
+            long id = invocation.getArgument(0, Long.class);
+            if (id == 1L) {
+                return sampleTicket;
+            }
+            if (id == 2L) {
+                return anotherTicket;
+            }
+            throw new EntityNotFoundException("Ticket not found with id: " + id);
+        });
     }
 
     @Test
@@ -106,24 +136,24 @@ class TicketServiceTest {
         when(userRepository.findById(1L)).thenReturn(Optional.of(createdByUser));
 
         // Mock TicketRepository behavior
-        when(ticketRepository.save(any(Ticket.class))).thenReturn(sampleTicket);
+        when(ticketRepository.save(ArgumentMatchers.any(Ticket.class))).thenReturn(sampleTicket);
 
         // Act
         Ticket createdTicket = ticketService.createTicket(sampleTicket);
 
         // Assert
-        assertNotNull(createdTicket);
-        assertEquals(sampleTicket.getTitle(), createdTicket.getTitle());
-        assertEquals(sampleTicket.getDescription(), createdTicket.getDescription());
-        assertEquals(sampleTicket.getPriority(), createdTicket.getPriority());
-        assertEquals(sampleTicket.getCategory(), createdTicket.getCategory());
-        assertEquals(sampleTicket.getStatus(), createdTicket.getStatus());
-        assertNotNull(createdTicket.getCreatedBy());
-        assertEquals(createdByUser.getUserId(), createdTicket.getCreatedBy().getUserId());
+        Assertions.assertNotNull(createdTicket);
+        Assertions.assertEquals(sampleTicket.getTitle(), createdTicket.getTitle());
+        Assertions.assertEquals(sampleTicket.getDescription(), createdTicket.getDescription());
+        Assertions.assertEquals(sampleTicket.getPriority(), createdTicket.getPriority());
+        Assertions.assertEquals(sampleTicket.getCategory(), createdTicket.getCategory());
+        Assertions.assertEquals(sampleTicket.getStatus(), createdTicket.getStatus());
+        Assertions.assertNotNull(createdTicket.getCreatedBy());
+        Assertions.assertEquals(createdByUser.getUserId(), createdTicket.getCreatedBy().getUserId());
         
         // Verify repository interactions
         verify(userRepository, times(1)).findById(1L);
-        verify(ticketRepository, times(1)).save(any(Ticket.class));
+        verify(ticketRepository, times(1)).save(ArgumentMatchers.any(Ticket.class));
     }
     
     @Test
@@ -133,14 +163,24 @@ class TicketServiceTest {
         ticketWithoutUser.setTitle("Invalid Ticket");
         
         // Act & Assert
-        Exception exception = assertThrows(IllegalArgumentException.class, () -> {
+        Exception exception = Assertions.assertThrows(IllegalArgumentException.class, () -> {
             ticketService.createTicket(ticketWithoutUser);
         });
         
-        assertTrue(exception.getMessage().contains("Created by user is required"));
-        verify(ticketRepository, never()).save(any(Ticket.class));
+        Assertions.assertTrue(exception.getMessage().contains("Created by user is required"));
+        verify(ticketRepository, never()).save(ArgumentMatchers.any(Ticket.class));
     }
     
+    @Test
+    void createTicket_DisabledCreator() {
+        createdByUser.setEnabled(false);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(createdByUser));
+
+        Assertions.assertThrows(AccessDeniedException.class, () -> ticketService.createTicket(sampleTicket));
+
+        verify(ticketRepository, never()).save(ArgumentMatchers.any(Ticket.class));
+    }
+
     @Test
     void createTicket_NonExistentUser() {
         // Prepare test data
@@ -155,46 +195,37 @@ class TicketServiceTest {
         when(userRepository.findById(999L)).thenReturn(Optional.empty());
         
         // Act & Assert
-        Exception exception = assertThrows(IllegalArgumentException.class, () -> {
+        Exception exception = Assertions.assertThrows(IllegalArgumentException.class, () -> {
             ticketService.createTicket(ticketWithInvalidUser);
         });
         
-        assertTrue(exception.getMessage().contains("User not found with ID: 999"));
+        Assertions.assertTrue(exception.getMessage().contains("User not found with ID: 999"));
         verify(userRepository, times(1)).findById(999L);
-        verify(ticketRepository, never()).save(any(Ticket.class));
+        verify(ticketRepository, never()).save(ArgumentMatchers.any(Ticket.class));
     }
     
     @Test
     void updateTicketStatus_Success() {
-        // Mock TicketRepository behavior
-        when(ticketRepository.findById(1L)).thenReturn(Optional.of(sampleTicket));
-        when(ticketRepository.save(any(Ticket.class))).thenReturn(sampleTicket);
-        
-        // Act
+        when(ticketRepository.save(ArgumentMatchers.any(Ticket.class))).thenReturn(sampleTicket);
+
         Ticket updatedTicket = ticketService.updateTicketStatus(1L, Ticket.Status.IN_PROGRESS);
-        
-        // Assert
-        assertNotNull(updatedTicket);
-        assertEquals(Ticket.Status.IN_PROGRESS, updatedTicket.getStatus());
-        
-        // Verify repository interactions
-        verify(ticketRepository, times(1)).findById(1L);
-        verify(ticketRepository, times(1)).save(any(Ticket.class));
+
+        Assertions.assertNotNull(updatedTicket);
+        Assertions.assertEquals(Ticket.Status.IN_PROGRESS, updatedTicket.getStatus());
+
+        verify(ticketAccessService, times(1)).requireAccessibleTicket(1L);
+        verify(ticketRepository, times(1)).save(ArgumentMatchers.any(Ticket.class));
     }
     
     @Test
     void updateTicketStatus_TicketNotFound() {
-        // Mock TicketRepository behavior
-        when(ticketRepository.findById(999L)).thenReturn(Optional.empty());
-        
-        // Act & Assert
-        Exception exception = assertThrows(EntityNotFoundException.class, () -> {
+        Exception exception = Assertions.assertThrows(EntityNotFoundException.class, () -> {
             ticketService.updateTicketStatus(999L, Ticket.Status.IN_PROGRESS);
         });
-        
-        assertTrue(exception.getMessage().contains("Ticket not found"));
-        verify(ticketRepository, times(1)).findById(999L);
-        verify(ticketRepository, never()).save(any(Ticket.class));
+
+        Assertions.assertTrue(exception.getMessage().contains("Ticket not found"));
+        verify(ticketAccessService, times(1)).requireAccessibleTicket(999L);
+        verify(ticketRepository, never()).save(ArgumentMatchers.any(Ticket.class));
     }
     
     @Test
@@ -206,20 +237,20 @@ class TicketServiceTest {
         List<TicketDTO> ticketDTOs = ticketService.getAllTickets();
         
         // Assert
-        assertNotNull(ticketDTOs);
-        assertEquals(2, ticketDTOs.size());
+        Assertions.assertNotNull(ticketDTOs);
+        Assertions.assertEquals(2, ticketDTOs.size());
         
         // Check first DTO
         TicketDTO firstDTO = ticketDTOs.get(0);
-        assertEquals(sampleTicket.getTicketId(), firstDTO.getTicketId());
-        assertEquals(sampleTicket.getTitle(), firstDTO.getTitle());
-        assertEquals(sampleTicket.getStatus(), firstDTO.getStatus());
+        Assertions.assertEquals(sampleTicket.getTicketId(), firstDTO.getTicketId());
+        Assertions.assertEquals(sampleTicket.getTitle(), firstDTO.getTitle());
+        Assertions.assertEquals(sampleTicket.getStatus(), firstDTO.getStatus());
         
         // Check second DTO
         TicketDTO secondDTO = ticketDTOs.get(1);
-        assertEquals(anotherTicket.getTicketId(), secondDTO.getTicketId());
-        assertEquals(anotherTicket.getTitle(), secondDTO.getTitle());
-        assertEquals(anotherTicket.getStatus(), secondDTO.getStatus());
+        Assertions.assertEquals(anotherTicket.getTicketId(), secondDTO.getTicketId());
+        Assertions.assertEquals(anotherTicket.getTitle(), secondDTO.getTitle());
+        Assertions.assertEquals(anotherTicket.getStatus(), secondDTO.getStatus());
         
         // Verify repository interactions
         verify(ticketRepository, times(1)).findAll();
@@ -227,33 +258,23 @@ class TicketServiceTest {
     
     @Test
     void getTicketById_Success() {
-        // Mock TicketRepository behavior
-        when(ticketRepository.findById(1L)).thenReturn(Optional.of(sampleTicket));
-        
-        // Act
         Ticket foundTicket = ticketService.getTicketById(1L);
-        
-        // Assert
-        assertNotNull(foundTicket);
-        assertEquals(sampleTicket.getTicketId(), foundTicket.getTicketId());
-        assertEquals(sampleTicket.getTitle(), foundTicket.getTitle());
-        
-        // Verify repository interactions
-        verify(ticketRepository, times(1)).findById(1L);
+
+        Assertions.assertNotNull(foundTicket);
+        Assertions.assertEquals(sampleTicket.getTicketId(), foundTicket.getTicketId());
+        Assertions.assertEquals(sampleTicket.getTitle(), foundTicket.getTitle());
+
+        verify(ticketAccessService, times(1)).requireAccessibleTicket(1L);
     }
-    
+
     @Test
     void getTicketById_TicketNotFound() {
-        // Mock TicketRepository behavior
-        when(ticketRepository.findById(999L)).thenReturn(Optional.empty());
-        
-        // Act & Assert
-        Exception exception = assertThrows(EntityNotFoundException.class, () -> {
+        Exception exception = Assertions.assertThrows(EntityNotFoundException.class, () -> {
             ticketService.getTicketById(999L);
         });
-        
-        assertTrue(exception.getMessage().contains("Ticket not found"));
-        verify(ticketRepository, times(1)).findById(999L);
+
+        Assertions.assertTrue(exception.getMessage().contains("Ticket not found"));
+        verify(ticketAccessService, times(1)).requireAccessibleTicket(999L);
     }
     
     @Test
@@ -265,10 +286,10 @@ class TicketServiceTest {
         List<Ticket> foundTickets = ticketService.getTicketsByStatus(Ticket.Status.NEW);
         
         // Assert
-        assertNotNull(foundTickets);
-        assertEquals(1, foundTickets.size());
-        assertEquals(sampleTicket.getTicketId(), foundTickets.get(0).getTicketId());
-        assertEquals(Ticket.Status.NEW, foundTickets.get(0).getStatus());
+        Assertions.assertNotNull(foundTickets);
+        Assertions.assertEquals(1, foundTickets.size());
+        Assertions.assertEquals(sampleTicket.getTicketId(), foundTickets.get(0).getTicketId());
+        Assertions.assertEquals(Ticket.Status.NEW, foundTickets.get(0).getStatus());
         
         // Verify repository interactions
         verify(ticketRepository, times(1)).findByStatus(Ticket.Status.NEW);
@@ -276,55 +297,46 @@ class TicketServiceTest {
     
     @Test
     void getTicketDTOById_Success() {
-        // Mock TicketRepository behavior
-        when(ticketRepository.findById(1L)).thenReturn(Optional.of(sampleTicket));
-        
-        // Act
         TicketDTO ticketDTO = ticketService.getTicketDTOById(1L);
         
         // Assert
-        assertNotNull(ticketDTO);
-        assertEquals(sampleTicket.getTicketId(), ticketDTO.getTicketId());
-        assertEquals(sampleTicket.getTitle(), ticketDTO.getTitle());
-        assertEquals(sampleTicket.getDescription(), ticketDTO.getDescription());
-        assertEquals(sampleTicket.getPriority(), ticketDTO.getPriority());
-        assertEquals(sampleTicket.getCategory(), ticketDTO.getCategory());
-        assertEquals(sampleTicket.getStatus(), ticketDTO.getStatus());
+        Assertions.assertNotNull(ticketDTO);
+        Assertions.assertEquals(sampleTicket.getTicketId(), ticketDTO.getTicketId());
+        Assertions.assertEquals(sampleTicket.getTitle(), ticketDTO.getTitle());
+        Assertions.assertEquals(sampleTicket.getDescription(), ticketDTO.getDescription());
+        Assertions.assertEquals(sampleTicket.getPriority(), ticketDTO.getPriority());
+        Assertions.assertEquals(sampleTicket.getCategory(), ticketDTO.getCategory());
+        Assertions.assertEquals(sampleTicket.getStatus(), ticketDTO.getStatus());
         
         // Check assigned user
-        assertNotNull(ticketDTO.getAssignedUser());
-        assertEquals(assignedUser.getUserId(), ticketDTO.getAssignedUser().getUserId());
-        assertEquals(assignedUser.getUsername(), ticketDTO.getAssignedUser().getUsername());
+        Assertions.assertNotNull(ticketDTO.getAssignedUser());
+        Assertions.assertEquals(assignedUser.getUserId(), ticketDTO.getAssignedUser().getUserId());
+        Assertions.assertEquals(assignedUser.getUsername(), ticketDTO.getAssignedUser().getUsername());
         
         // Check created by user
-        assertNotNull(ticketDTO.getCreatedBy());
-        assertEquals(createdByUser.getUserId(), ticketDTO.getCreatedBy().getUserId());
-        assertEquals(createdByUser.getUsername(), ticketDTO.getCreatedBy().getUsername());
+        Assertions.assertNotNull(ticketDTO.getCreatedBy());
+        Assertions.assertEquals(createdByUser.getUserId(), ticketDTO.getCreatedBy().getUserId());
+        Assertions.assertEquals(createdByUser.getUsername(), ticketDTO.getCreatedBy().getUsername());
         
         // Check comments
-        assertNotNull(ticketDTO.getComments());
-        assertEquals(2, ticketDTO.getComments().size());
+        Assertions.assertNotNull(ticketDTO.getComments());
+        Assertions.assertEquals(2, ticketDTO.getComments().size());
         
         CommentDTO firstComment = ticketDTO.getComments().get(0);
-        assertEquals(comment1.getCommentId(), firstComment.getCommentId());
-        assertEquals(comment1.getContent(), firstComment.getContent());
-        assertEquals(createdByUser.getUserId(), firstComment.getUser().getUserId());
+        Assertions.assertEquals(comment1.getCommentId(), firstComment.getCommentId());
+        Assertions.assertEquals(comment1.getContent(), firstComment.getContent());
+        Assertions.assertEquals(createdByUser.getUserId(), firstComment.getUser().getUserId());
         
-        // Verify repository interactions
-        verify(ticketRepository, times(1)).findById(1L);
+        verify(ticketAccessService, times(1)).requireAccessibleTicket(1L);
     }
-    
+
     @Test
     void getTicketDTOById_TicketNotFound() {
-        // Mock TicketRepository behavior
-        when(ticketRepository.findById(999L)).thenReturn(Optional.empty());
-        
-        // Act & Assert
-        Exception exception = assertThrows(EntityNotFoundException.class, () -> {
+        Exception exception = Assertions.assertThrows(EntityNotFoundException.class, () -> {
             ticketService.getTicketDTOById(999L);
         });
-        
-        assertTrue(exception.getMessage().contains("Ticket not found"));
-        verify(ticketRepository, times(1)).findById(999L);
+
+        Assertions.assertTrue(exception.getMessage().contains("Ticket not found"));
+        verify(ticketAccessService, times(1)).requireAccessibleTicket(999L);
     }
 }

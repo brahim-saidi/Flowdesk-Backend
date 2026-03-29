@@ -43,25 +43,23 @@ The system allows employees to report and track IT issues while enabling IT supp
 
 ### 2.1 Technology Stack
 
-- **Backend**: Java 17, Spring Boot 3.x
-- **Database**: Oracle SQL
-- **UI**: Java Swing with MigLayout
-- **API Documentation**: OpenAPI/Swagger
+- **Backend**: Java 17, Spring Boot 3.x, Spring Security, JWT
+- **Database**: PostgreSQL
+- **Schema migrations**: Flyway (`src/main/resources/db/migration/`)
+- **API documentation**: OpenAPI/Swagger
 - **Testing**: JUnit, Mockito
-- **Containerization**: Docker
+- **Operations**: Docker Compose for local PostgreSQL; Spring Boot Actuator (health, including DB)
 
-### 2.2 Component Diagram
+### 2.2 Component diagram
 
-The system consists of the following components:
+- **Spring Boot REST API**: Business logic and HTTP layer
+- **PostgreSQL**: Persistent storage
+- **Optional front ends**: Any HTTP client (e.g. React) calling the REST API
+- **Docker Compose**: Local PostgreSQL only (see `docker-compose.yml`)
 
-- **Spring Boot REST API**: Handles all backend operations
-- **Oracle Database**: Stores all system data
-- **Java Swing Client**: Provides the user interface
-- **Docker Containers**: Encapsulate the application and database
+### 2.3 Authentication design
 
-### 2.3 Authentication Design
-
-This implementation uses a basic authentication approach with custom user management rather than Spring Security or JWT tokens, as these were not specified in the requirements. User roles and permissions are managed through custom logic.
+JWT bearer tokens are issued on `POST /api/auth/login`. Protected routes require `Authorization: Bearer <token>`. Roles (`EMPLOYEE`, `IT_SUPPORT`) are enforced with Spring Security method security where applicable.
 
 ---
 
@@ -76,8 +74,9 @@ All API endpoints are relative to: `http://localhost:8080/api`
 #### 3.2.1 Login
 
 ```
-POST /login
+POST /auth/login
 ```
+(relative to base URL `http://localhost:8080/api`, i.e. `POST /api/auth/login`)
 
 **Request Body:**
 ```json
@@ -425,6 +424,7 @@ GET /audit/ticket/{ticketId}
   "username": "string",
   "email": "string",
   "role": "EMPLOYEE|IT_SUPPORT",
+  "enabled": "boolean",
   "createdAt": "timestamp",
   "lastLogin": "timestamp"
 }
@@ -469,7 +469,7 @@ GET /audit/ticket/{ticketId}
 
 ## 5. Authentication
 
-Authentication is handled via a simple username/password login mechanism. For simplicity, the system does not use Spring Security or JWT tokens as these were not specified in the requirements. Instead, a basic authentication approach is implemented to manage user roles and permissions.
+Users authenticate with `POST /api/auth/login` and receive a JWT. Include `Authorization: Bearer <token>` on subsequent requests. Disabled accounts cannot log in or call `GET /api/auth/me`.
 
 The system has two roles:
 - EMPLOYEE: Can create and view their own tickets
@@ -490,34 +490,35 @@ The following default users are created during initialization:
 
 ---
 
-## 6. Database Schema
+## 6. Database schema
 
-The application uses an Oracle SQL database with the following schema:
+The canonical schema is maintained by **Flyway** in `src/main/resources/db/migration/` (PostgreSQL). The following is a simplified reference.
 
-### 6.1 Users Table
+### 6.1 Users table
 ```sql
 CREATE TABLE users (
-    user_id NUMBER DEFAULT user_seq.NEXTVAL PRIMARY KEY,
-    username VARCHAR2(50) NOT NULL UNIQUE,
-    password VARCHAR2(100) NOT NULL, 
-    email VARCHAR2(100) NOT NULL,
-    role VARCHAR2(20) NOT NULL CHECK (role IN ('EMPLOYEE', 'IT_SUPPORT')),
+    user_id BIGINT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    email VARCHAR(100) NOT NULL,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('EMPLOYEE', 'IT_SUPPORT')),
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_login TIMESTAMP
 );
 ```
 
-### 6.2 Tickets Table
+### 6.2 Tickets table
 ```sql
 CREATE TABLE tickets (
-    ticket_id NUMBER DEFAULT ticket_seq.NEXTVAL PRIMARY KEY,
-    title VARCHAR2(100) NOT NULL,
-    description CLOB NOT NULL,
-    priority VARCHAR2(20) NOT NULL CHECK (priority IN ('LOW', 'MEDIUM', 'HIGH')),
-    category VARCHAR2(20) NOT NULL CHECK (category IN ('NETWORK', 'HARDWARE', 'SOFTWARE', 'OTHER')),
-    status VARCHAR2(20) NOT NULL CHECK (status IN ('NEW', 'IN_PROGRESS', 'RESOLVED')),
-    created_by NUMBER NOT NULL,
-    assigned_to NUMBER,
+    ticket_id BIGINT PRIMARY KEY,
+    title VARCHAR(100) NOT NULL,
+    description TEXT NOT NULL,
+    priority VARCHAR(20) NOT NULL CHECK (priority IN ('LOW', 'MEDIUM', 'HIGH')),
+    category VARCHAR(20) NOT NULL CHECK (category IN ('NETWORK', 'HARDWARE', 'SOFTWARE', 'OTHER')),
+    status VARCHAR(20) NOT NULL CHECK (status IN ('NEW', 'IN_PROGRESS', 'RESOLVED')),
+    created_by BIGINT NOT NULL,
+    assigned_to BIGINT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP,
     CONSTRAINT fk_ticket_creator FOREIGN KEY (created_by) REFERENCES users(user_id),
@@ -525,28 +526,28 @@ CREATE TABLE tickets (
 );
 ```
 
-### 6.3 Comments Table
+### 6.3 Comments table
 ```sql
 CREATE TABLE comments (
-    comment_id NUMBER DEFAULT comment_seq.NEXTVAL PRIMARY KEY,
-    ticket_id NUMBER NOT NULL,
-    user_id NUMBER NOT NULL,
-    content CLOB NOT NULL,
+    comment_id BIGINT PRIMARY KEY,
+    ticket_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    content TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_comment_ticket FOREIGN KEY (ticket_id) REFERENCES tickets(ticket_id),
     CONSTRAINT fk_comment_user FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
 ```
 
-### 6.4 Audit Log Table
+### 6.4 Audit log table
 ```sql
 CREATE TABLE audit_log (
-    audit_id NUMBER DEFAULT audit_seq.NEXTVAL PRIMARY KEY,
-    ticket_id NUMBER NOT NULL,
-    user_id NUMBER NOT NULL,
-    action VARCHAR2(50) NOT NULL,
-    old_value VARCHAR2(100),
-    new_value VARCHAR2(100),
+    audit_id BIGINT PRIMARY KEY,
+    ticket_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    action VARCHAR(50) NOT NULL,
+    old_value VARCHAR(100),
+    new_value VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_audit_ticket FOREIGN KEY (ticket_id) REFERENCES tickets(ticket_id),
     CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(user_id)
@@ -567,29 +568,29 @@ The database follows a relational structure with the following relationships:
 
 ---
 
-## 7. Error Handling
+## 7. Error handling
 
-The API returns appropriate HTTP status codes for different types of errors:
+Typical HTTP status codes:
 
-- 400 Bad Request: Invalid request parameters or validation errors
-- 401 Unauthorized: Authentication issues
-- 403 Forbidden: Authorization issues
-- 404 Not Found: Resource not found
-- 500 Internal Server Error: Server-side errors
+- **400** Bad Request: validation or invalid parameters
+- **401** Unauthorized: missing or invalid JWT (also failed login)
+- **403** Forbidden: authenticated but not allowed
+- **404** Not Found: missing resource (including deliberately hidden tickets for unauthorized users)
+- **409** Conflict: e.g. duplicate username on admin create user
 
-Note: Since the application does not use Spring Security, authentication and authorization errors are handled through custom logic rather than through standard security filters.
-
-Error responses include a message explaining the error:
+JSON error body shape (consistent across `@RestControllerAdvice` and security entry points where applicable):
 
 ```json
 {
-  "timestamp": "ISO date",
-  "status": "number",
-  "error": "string",
-  "message": "string",
-  "path": "string"
+  "code": "STRING_CODE",
+  "message": "Human-readable summary",
+  "fieldErrors": [
+    { "field": "fieldName", "message": "reason" }
+  ]
 }
 ```
+
+`fieldErrors` is an empty array when not a field-level validation error.
 
 ---
 
@@ -602,80 +603,67 @@ Error responses include a message explaining the error:
 - Maven 3.6 or higher (for development)
 - Git (for cloning the repository)
 
-### 8.2 Docker Deployment
+### 8.2 Local database (Docker Compose)
 
-1. Clone the repository:
+1. From the project root:
    ```bash
-   git clone https://github.com/hahnSoftware/ticket-system.git
-   cd ticket-system
+   docker compose up -d
+   ```
+   This starts PostgreSQL (see `docker-compose.yml`: database `ticket`, user/password `postgres`).
+
+2. Run the Spring Boot application (Flyway runs on startup):
+   ```bash
+   mvn spring-boot:run
    ```
 
-2. Build and run the containers:
-   ```bash
-   docker-compose up -d
-   ```
-
-3. Access the application:
-   - API: `http://localhost:8080/api`
+3. Useful URLs:
+   - API base: `http://localhost:8080/api`
    - Swagger UI: `http://localhost:8080/swagger-ui.html`
+   - Liveness/readiness-style health: `http://localhost:8080/actuator/health`
 
-### 8.3 Development Setup
+### 8.3 Development setup
 
-1. Configure Oracle database connection in `src/main/resources/application.properties`
+1. Point `spring.datasource.*` in `src/main/resources/application.properties` at your PostgreSQL instance (or use the Docker Compose service on `localhost:5432`).
 
-2. Build the application:
+2. Build and test:
    ```bash
-   mvn clean install
+   mvn clean verify
    ```
 
-3. Run the application:
+3. Run:
    ```bash
-   java -jar target/ticket-system-1.0.0.jar
+   mvn spring-boot:run
    ```
 
 ---
 
-## 9. Client Application
+## 9. Client applications
 
-### 9.1 Swing Client Features
-
-The Java Swing client application provides:
-- Separate interfaces for employees and IT support staff
-- Ticket creation form
-- Ticket listing with filtering options
-- Comment management
-- Status updates
-
-### 9.2 Running the Client
-
-1. Build the Swing client:
-   ```bash
-   cd client
-   mvn clean package
-   ```
-
-2. Run the client:
-   ```bash
-   java -jar target/ticket-client-1.0.0-jar-with-dependencies.jar
-   ```
+Any HTTP client can integrate with the API (e.g. a React SPA). Use the OpenAPI/Swagger UI for request and response shapes. Typical flow: login → store JWT → attach `Authorization` header → call ticket and admin endpoints as allowed by role.
 
 ---
 
 ## 10. Appendix
 
-### 10.1 API Endpoints Summary
+### 10.1 API endpoints summary
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | /login | Authenticate user |
-| POST | /tickets | Create a new ticket |
-| GET | /tickets | Get all tickets |
-| GET | /tickets/{ticketId} | Get ticket by ID |
-| GET | /tickets/status/{status} | Get tickets by status |
-| PUT | /tickets/{ticketId}/status | Update ticket status |
-| POST | /comments | Add comment to ticket |
-| GET | /comments/ticket/{ticketId} | Get comments for a ticket |
-| GET | /audit/ticket/{ticketId} | Get audit logs for a ticket |
+| POST | /api/auth/login | Authenticate; returns JWT |
+| GET | /api/auth/me | Current user from JWT |
+| POST | /api/tickets | Create ticket |
+| GET | /api/tickets | Paged ticket search (`title`, `createdFrom`, `createdTo`, `assigneeUserId`, standard `page`, `size`, `sort`) |
+| GET | /api/tickets/{ticketId} | Ticket by ID |
+| GET | /api/tickets/status/{status} | Tickets by status |
+| PUT | /api/tickets/{ticketId}/status | Update ticket status |
+| GET | /api/admin/users | Paged user list (IT support) |
+| POST | /api/admin/users | Create user (IT support) |
+| PATCH | /api/admin/users/{userId}/enabled | Enable/disable user (IT support) |
+| POST | /api/admin/users/{userId}/reset-password | Reset password (IT support) |
+| POST | /api/comments | Add comment |
+| GET | /api/comments/ticket/{ticketId} | Comments for ticket |
+| GET | /api/audit-logs/ticket/{ticketId} | Audit logs for ticket |
+| GET | /actuator/health | Liveness/readiness (public) |
 
 ### 10.2 OpenAPI Documentation
 

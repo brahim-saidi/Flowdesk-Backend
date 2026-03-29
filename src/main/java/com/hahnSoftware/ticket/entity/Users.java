@@ -7,6 +7,7 @@ import java.util.List;
 
 import org.hibernate.annotations.CreationTimestamp;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import jakarta.persistence.CascadeType;
@@ -41,13 +42,17 @@ public class Users {
     private Long userId;  
     
     private String username;
+    @JsonIgnore
     private String password;
     private String email;
    
 
 
      @Enumerated(EnumType.STRING)
-     private Role role = Role.EMPLOYEE; // Default role
+     private Role role = Role.EMPLOYEE;
+
+    @Column(nullable = false)
+    private boolean enabled = true;
         
 
 

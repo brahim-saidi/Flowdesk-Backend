@@ -1,5 +1,27 @@
 HELP.md
 target/
+
+### OS & editors ###
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+### Logs & JVM dumps ###
+*.log
+hs_err_pid*
+replay_pid*
+
+### Local config & secrets (never commit) ###
+application-local.properties
+application-*.local.properties
+.env
+.env.*
+!.env.example
+
+### Maven ###
+.flattened-pom.xml
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
@@ -31,3 +53,4 @@ build/
 
 ### VS Code ###
 .vscode/
+src/main/resources/application.properties

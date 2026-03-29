@@ -1,20 +1,20 @@
 services:
-  oracle-db:
-    image: gvenzl/oracle-xe:21-slim
-    container_name: oracle-db
+  postgres:
+    image: postgres:16-alpine
+    container_name: ticket-postgres
     environment:
-      - ORACLE_PASSWORD=pass123
-      - ORACLE_DATABASE=XEPDB1
+      POSTGRES_DB: ticket
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
-      - "1521:1521"
+      - "5432:5432"
     volumes:
-      - oracle-data:/opt/oracle/oradata
-      - ./init-scripts:/docker-entrypoint-initdb.d/startup
+      - ticket-pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "sqlplus", "-L", "system/pass123@//localhost:1521/XEPDB1", "AS", "SYSDBA", "SELECT 1 FROM DUAL"]
-      interval: 30s
-      timeout: 20s
-      retries: 15
-      start_period: 240s
-    networks:
-      - app-network
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ticket"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ticket-pgdata:

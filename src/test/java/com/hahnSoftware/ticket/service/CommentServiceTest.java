@@ -18,7 +18,11 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.junit.jupiter.api.Assertions.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -26,6 +30,9 @@ class CommentServiceTest {
 
     @Mock
     private CommentRepository commentRepository;
+
+    @Mock
+    private TicketAccessService ticketAccessService;
 
     @InjectMocks
     private CommentServiceImpl commentService;
@@ -53,6 +60,12 @@ class CommentServiceTest {
         testComment.setCreatedAt(Timestamp.from(Instant.now()));
         testComment.setUser(testUser);
         testComment.setTicket(testTicket);
+
+        lenient().when(ticketAccessService.requireAccessibleTicket(anyLong())).thenAnswer(invocation -> {
+            Ticket t = new Ticket();
+            t.setTicketId(invocation.getArgument(0, Long.class));
+            return t;
+        });
     }
 
     @Test
@@ -84,6 +97,7 @@ class CommentServiceTest {
         assertFalse(actualComments.isEmpty());
         assertEquals(1, actualComments.size());
         assertEquals(testComment.getContent(), actualComments.get(0).getContent());
+        verify(ticketAccessService, times(1)).requireAccessibleTicket(1L);
         verify(commentRepository, times(1)).findByTicket_TicketId(1L);
     }
 
@@ -111,6 +125,7 @@ class CommentServiceTest {
         // Assert
         assertNotNull(comments);
         assertTrue(comments.isEmpty());
+        verify(ticketAccessService, times(1)).requireAccessibleTicket(999L);
         verify(commentRepository, times(1)).findByTicket_TicketId(999L);
     }
 
@@ -125,6 +140,7 @@ class CommentServiceTest {
 
         // Act & Assert
         assertDoesNotThrow(() -> commentService.addComment(commentWithNullContent));
+        verify(ticketAccessService, times(1)).requireAccessibleTicket(1L);
         verify(commentRepository, times(1)).save(any(Comment.class));
     }
 }

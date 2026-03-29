@@ -52,7 +52,7 @@ public class Ticket {
 
 
     @ManyToOne(fetch = FetchType.EAGER)  // Change to EAGER temporarily for testing
-    @JoinColumn(name = "CREATED_BY", nullable = false)
+    @JoinColumn(name = "created_by", nullable = false)
     @JsonIgnore
     private Users createdBy;
 

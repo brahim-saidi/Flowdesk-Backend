@@ -19,14 +19,21 @@ public class CommentServiceImpl implements CommentService {
     @Autowired
     private CommentRepository commentRepository;
 
+    @Autowired
+    private TicketAccessService ticketAccessService;
+
     @Override
     public Comment addComment(Comment comment) {
+        if (comment.getTicket() == null || comment.getTicket().getTicketId() == null) {
+            throw new IllegalArgumentException("Ticket is required");
+        }
+        ticketAccessService.requireAccessibleTicket(comment.getTicket().getTicketId());
         return commentRepository.save(comment);
     }
 
     @Override
     public List<Comment> getCommentsByTicketId(Long ticketId) {
-        // Updated to use the correct repository method
+        ticketAccessService.requireAccessibleTicket(ticketId);
         return commentRepository.findByTicket_TicketId(ticketId);
     }
 

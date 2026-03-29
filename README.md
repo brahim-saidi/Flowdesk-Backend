@@ -1,162 +1,95 @@
-# IT Support Ticket System
+# IT Support Ticket System — Backend API
 
-A Java-based ticket management application that allows employees to report and track IT issues.
+Spring Boot REST API for the IT support ticket system. The **web UI is a separate [React](https://react.dev/) application** hosted on GitHub; this repository contains only the backend.
+
+## Repositories
+
+| Part | Stack | Repository |
+|------|--------|------------|
+| **Backend** (this repo) | Java 17, Spring Boot 3 | [github.com/brahim-saidi/tickets](https://github.com/brahim-saidi/tickets) |
+| **Frontend** | React | *Add your React app’s GitHub URL here* (e.g. `https://github.com/<user>/<repo>`) |
+
+Clone the React project separately, install dependencies (`npm install` / `pnpm install` / `yarn`), and point the client at this API (see [Connecting the React app](#connecting-the-react-app)).
 
 ## Features
 
-- **Ticket Management**: Create, view, and update IT support tickets
-- **User Roles**: Separate interfaces for employees and IT support staff
-- **Status Tracking**: Follow tickets through their lifecycle
-- **Commenting System**: Add comments to tickets for better communication
-- **Audit Logging**: Track all changes made to tickets
-- **Search & Filter**: Find tickets by ID and status
+- **Tickets**: Create, read, update status; **paginated** list with **sort**; filters by **title**, **created date range**, **assignee** (IT support)
+- **Roles**: Employees see tickets they created or are assigned to; IT support sees all tickets
+- **Comments** and **audit logging** on tickets
+- **Admin (IT support)**: Create users, **paginated** user list, **enable/disable** accounts, **password reset**
+- **Auth**: JWT login (`POST /api/auth/login`), **`GET /api/auth/me`** for the current user (for React)
+- **Errors**: Consistent JSON body: `code`, `message`, `fieldErrors` for common status codes (400 / 401 / 403 / 404 / 409)
+- **Ops**: **Flyway** migrations, **Spring Boot Actuator** health (including **database**) for deployments
 
-## Technology Stack
+## Technology stack
 
-- **Backend**: Java 17, Spring Boot, RESTful API
-- **Database**: Oracle SQL
-- **UI**: Java Swing with MigLayout
-- **API Documentation**: OpenAPI/Swagger
-- **Testing**: JUnit, Mockito
-- **Containerization**: Docker
+- **Backend**: Java 17, Spring Boot 3, Spring Data JPA, Spring Security, JWT
+- **Database**: PostgreSQL
+- **Migrations**: Flyway — `src/main/resources/db/migration/`
+- **API docs**: OpenAPI / Swagger UI
+- **Testing**: JUnit 5, Mockito
+- **Frontend** (separate repo): React (see table above)
 
-## System Requirements
+## Requirements
 
-- Java 17 or higher
-- Docker and Docker Compose
-- Maven 3.6 or higher (for development)
-- Git (for cloning the repository)
+- Java 17+
+- Maven 3.6+
+- Docker (optional, for local PostgreSQL)
 
-## Quick Start
+## Quick start — backend
 
-### Running with Docker
+1. Start PostgreSQL:
 
-1. Clone the repository:
    ```bash
-   git clone https://github.com/hahnSoftware/ticket-system.git
-   cd ticket-system
+   docker compose up -d
    ```
 
-2. Build and run the containers:
+   Uses `docker-compose.yml` (Postgres 16, database `ticket`, user/password `postgres`).
+
+2. Run the API (Flyway applies schema and seed data on startup):
+
    ```bash
-   docker-compose up -d
+   mvn spring-boot:run
    ```
 
-3. Access the application:
-   - Swing Client: Run the JAR file in the `client/target` directory
-   - API: `http://localhost:8080/api`
-   - Swagger UI: `http://localhost:8080/swagger-ui.html`
+3. **Swagger UI**: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)  
+4. **Health**: [http://localhost:8080/actuator/health](http://localhost:8080/actuator/health)
 
-### Default Users
+Configuration: `src/main/resources/application.properties` (override with `application-local.properties` or environment variables for production).
 
-Two default users are created during initialization:
+### Default users (Flyway seed)
 
-- Employee:
-  - Username: `emp`
-  - Password: `emp`
-  - Role: `EMPLOYEE`
+- Employee: `emp` / `emp`
+- IT support: `admin1` / `admin1`
 
-- IT Support:
-  - Username: `admin1`
-  - Password: `admin1`
-  - Role: `IT_SUPPORT`
+## Connecting the React app
 
-## Development Setup
+1. In the **React** repository, set the API base URL to this backend (commonly `http://localhost:8080`). Use whatever mechanism your template uses, for example:
+   - **Vite**: `VITE_API_URL` or similar in `.env`
+   - **Create React App**: `REACT_APP_API_URL` in `.env`
+2. After login, send the JWT on requests: `Authorization: Bearer <token>`.
+3. **CORS** is configured for common dev servers in `application.properties` (`app.cors.allowed-origins`), including `http://localhost:5173` (Vite) and `http://localhost:3000` (CRA). Add your origin if it differs.
 
-### Backend
-
-1. Configure Oracle database connection in `src/main/resources/application.properties`
-
-2. Build the application:
-   ```bash
-   mvn clean install
-   ```
-
-3. Run the application:
-   ```bash
-   java -jar target/ticket-system-1.0.0.jar
-   ```
-
-### Client
-
-1. Build the Swing client:
-   ```bash
-   cd client
-   mvn clean package
-   ```
-
-2. Run the client:
-   ```bash
-   java -jar target/ticket-client-1.0.0-jar-with-dependencies.jar
-   ```
-
-## Database Schema
-
-The application uses an Oracle SQL database with the following structure:
-
-- **users**: Stores user information and credentials
-- **tickets**: Main ticket information
-- **comments**: Comments added to tickets
-- **audit_log**: Record of all changes to tickets
-
-The complete schema is available in `src/main/resources/data.sql`.
-
-## API Documentation
-
-The REST API is documented using OpenAPI/Swagger. You can access the API documentation at:
-
-```
-http://localhost:8080/swagger-ui.html
-```
-
-A comprehensive API documentation is also available in the `API-DOCUMENTATION.md` file.
-
-## Docker Configuration
-
-The application is containerized using Docker with the following components:
-
-- **Backend**: Spring Boot application
-- **Database**: Oracle XE 18c
-
-The Docker setup is defined in `docker-compose.yml` and includes:
-
-- Volume mapping for database persistence
-- Environment variable configuration
-- Port mappings for the application and database
-
-## Project Structure
-
-```
-ticket-system/
-├── src/
-│   ├── main/
-│   │   ├── java/
-│   │   │   └── com/
-│   │   │       └── hahnSoftware/
-│   │   │           └── ticket/
-│   │   │               ├── config/          # Configuration classes
-│   │   │               ├── controller/      # REST endpoints
-│   │   │               ├── entity/          # Domain models
-│   │   │               ├── repository/      # Data access layer
-│   │   │               ├── service/         # Business logic
-│   │   │               └── TicketApplication.java
-│   │   └── resources/
-│   │       ├── application.properties       # Application configuration
-│   │       └── data.sql                    # Database schema
-│   └── test/                               # Unit and integration tests
-├── client/                                 # Swing client application
-├── docker/                                 # Docker configuration files
-├── API-DOCUMENTATION.md                    # API documentation
-├── docker-compose.yml                      # Docker Compose configuration
-├── Dockerfile                              # Docker image definition
-└── pom.xml                                 # Maven configuration
-```
-
-## Testing
-
-The application includes comprehensive unit and integration tests. Run the tests with:
+## Build and test
 
 ```bash
-mvn test
+mvn clean verify
 ```
 
+## Database schema
+
+Schema changes are managed with **Flyway** only (`src/main/resources/db/migration/`). Do not hand-edit production schema outside migrations.
+
+## Project layout
+
+```
+tickets/
+├── src/main/java/com/hahnSoftware/ticket/
+├── src/main/resources/
+│   ├── application.properties
+│   └── db/migration/              # Flyway
+├── docker-compose.yml             # Local PostgreSQL
+└── pom.xml
+```
+
+The React UI lives in its **own** GitHub repository; it is not part of this Maven tree.

@@ -8,9 +8,19 @@ import com.hahnSoftware.ticket.entity.UserSummaryDTO;
 import com.hahnSoftware.ticket.entity.Users;
 import com.hahnSoftware.ticket.repository.TicketRepository;
 import com.hahnSoftware.ticket.repository.UserRepository;
+import com.hahnSoftware.ticket.security.CurrentUserService;
+
+import java.time.Instant;
 
 import org.springframework.context.annotation.Primary;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+
+import com.hahnSoftware.ticket.repository.TicketSpecs;
+
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.transaction.Transactional;
 
@@ -25,11 +35,18 @@ public class TicketServiceImpl implements TicketService {
 
     private final TicketRepository ticketRepository;
     private final UserRepository userRepository;
+    private final CurrentUserService currentUserService;
+    private final TicketAccessService ticketAccessService;
 
-   
-    public TicketServiceImpl(TicketRepository ticketRepository, UserRepository userRepository) {
+    public TicketServiceImpl(
+            TicketRepository ticketRepository,
+            UserRepository userRepository,
+            CurrentUserService currentUserService,
+            TicketAccessService ticketAccessService) {
         this.ticketRepository = ticketRepository;
         this.userRepository = userRepository;
+        this.currentUserService = currentUserService;
+        this.ticketAccessService = ticketAccessService;
     }
    
    
@@ -42,14 +59,17 @@ public class TicketServiceImpl implements TicketService {
         Users user = userRepository.findById(ticket.getCreatedBy().getUserId())
                 .orElseThrow(() -> new IllegalArgumentException("User not found with ID: " + ticket.getCreatedBy().getUserId()));
 
+        if (!user.isEnabled()) {
+            throw new AccessDeniedException("Account is disabled");
+        }
+
         ticket.setCreatedBy(user);
 
         return ticketRepository.save(ticket);
     }
     @Override
     public Ticket updateTicketStatus(Long ticketId, Ticket.Status status) {
-        Ticket ticket = ticketRepository.findById(ticketId)
-            .orElseThrow(() -> new EntityNotFoundException("Ticket not found"));
+        Ticket ticket = ticketAccessService.requireAccessibleTicket(ticketId);
         ticket.setStatus(status);
         return ticketRepository.save(ticket);
     }
@@ -57,15 +77,31 @@ public class TicketServiceImpl implements TicketService {
     @Transactional
     @Override
     public List<TicketDTO> getAllTickets() {
-        List<Ticket> tickets = ticketRepository.findAll();
+        List<Ticket> tickets = currentUserService.isItSupport()
+                ? ticketRepository.findAll()
+                : ticketRepository.findVisibleToUser(currentUserService.requireUserId());
         return tickets.stream()
             .map(this::convertToDTO)
             .collect(Collectors.toList());
     }
 
+    @Override
+    public Page<TicketDTO> searchTickets(
+            String title,
+            Instant createdFrom,
+            Instant createdTo,
+            Long assigneeUserId,
+            Pageable pageable) {
+        Specification<Ticket> spec = Specification.where(TicketSpecs.titleContains(title))
+                .and(TicketSpecs.createdAtFrom(createdFrom))
+                .and(TicketSpecs.createdAtTo(createdTo))
+                .and(TicketSpecs.assigneeUserId(assigneeUserId));
+        if (!currentUserService.isItSupport()) {
+            spec = spec.and(TicketSpecs.visibleToEmployee(currentUserService.requireUserId()));
+        }
+        return ticketRepository.findAll(spec, pageable).map(this::convertToDTO);
+    }
 
-
-    
     private TicketDTO convertToDTO(Ticket ticket) {
         TicketDTO ticketDTO = new TicketDTO();
         ticketDTO.setTicketId(ticket.getTicketId());
@@ -122,20 +158,21 @@ public class TicketServiceImpl implements TicketService {
     }
     @Override
     public Ticket getTicketById(Long ticketId) {
-        return ticketRepository.findById(ticketId)
-            .orElseThrow(() -> new EntityNotFoundException("Ticket not found"));
+        return ticketAccessService.requireAccessibleTicket(ticketId);
     }
 
     @Override
     public List<Ticket> getTicketsByStatus(Ticket.Status status) {
-        return ticketRepository.findByStatus(status);
+        if (currentUserService.isItSupport()) {
+            return ticketRepository.findByStatus(status);
+        }
+        return ticketRepository.findByStatusVisibleToUser(status, currentUserService.requireUserId());
     }
 
 
 
      public TicketDTO getTicketDTOById(Long ticketId) {
-        Ticket ticket = ticketRepository.findById(ticketId)
-            .orElseThrow(() -> new EntityNotFoundException("Ticket not found with id: " + ticketId));
+        Ticket ticket = ticketAccessService.requireAccessibleTicket(ticketId);
             
         TicketDTO ticketDTO = new TicketDTO();
         ticketDTO.setTicketId(ticket.getTicketId());

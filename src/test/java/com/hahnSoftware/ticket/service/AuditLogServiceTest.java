@@ -18,13 +18,19 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 public class AuditLogServiceTest {
 
     @Mock
     private AuditLogRepository auditLogRepository;
+
+    @Mock
+    private TicketAccessService ticketAccessService;
 
     @InjectMocks
     private AuditLogServiceImpl auditLogService;
@@ -62,6 +68,8 @@ public class AuditLogServiceTest {
         auditLog2.setOldValue(null);
         auditLog2.setNewValue("New comment");
         auditLog2.setCreatedAt(new Timestamp(System.currentTimeMillis() + 3600000)); // Plus 1 hour in milliseconds
+
+        lenient().when(ticketAccessService.requireAccessibleTicket(1L)).thenReturn(ticket);
     }
 
     @Test
@@ -79,6 +87,7 @@ public class AuditLogServiceTest {
         assertEquals(auditLog1.getOldValue(), savedAuditLog.getOldValue());
         assertEquals(auditLog1.getNewValue(), savedAuditLog.getNewValue());
         
+        verify(ticketAccessService, times(1)).requireAccessibleTicket(1L);
         verify(auditLogRepository, times(1)).save(any(AuditLog.class));
     }
 
@@ -110,6 +119,7 @@ public class AuditLogServiceTest {
         assertEquals(auditLog2.getAuditId(), dto2.getAuditId());
         assertEquals("COMMENT_ADDED", dto2.getAction());
         
+        verify(ticketAccessService, times(1)).requireAccessibleTicket(1L);
         verify(auditLogRepository, times(1)).findByTicket_TicketId(1L);
     }
 
@@ -124,6 +134,7 @@ public class AuditLogServiceTest {
         });
         
         assertTrue(exception.getMessage().contains("Error fetching audit logs: Database error"));
+        verify(ticketAccessService, times(1)).requireAccessibleTicket(1L);
         verify(auditLogRepository, times(1)).findByTicket_TicketId(1L);
     }
 }
