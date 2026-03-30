@@ -138,3 +138,4 @@ public class AuditLogServiceTest {
         verify(auditLogRepository, times(1)).findByTicket_TicketId(1L);
     }
 }
+
