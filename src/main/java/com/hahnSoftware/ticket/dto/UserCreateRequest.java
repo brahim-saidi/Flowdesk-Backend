@@ -13,3 +13,5 @@ public record UserCreateRequest(
         @NotBlank @Email @Size(max = 100) String email,
         @NotNull Users.Role role
 ) {}
+
+

@@ -6,3 +6,5 @@ public record LoginRequest(
         @NotBlank String username,
         @NotBlank String password
 ) {}
+
+

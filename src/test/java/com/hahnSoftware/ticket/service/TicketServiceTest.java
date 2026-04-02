@@ -267,6 +267,8 @@ class TicketServiceTest {
         verify(ticketAccessService, times(1)).requireAccessibleTicket(1L);
     }
 
+
+    
     @Test
     void getTicketById_TicketNotFound() {
         Exception exception = Assertions.assertThrows(EntityNotFoundException.class, () -> {
